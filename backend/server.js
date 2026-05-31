@@ -308,6 +308,18 @@ app.get('/api/users/me', authenticate, async (req, res) => {
   res.json({ username: user.username, storageCap: capMB });
 });
 
+// Delete own account
+app.delete('/api/users/me', authenticate, async (req, res) => {
+  await db.read();
+  const userIndex = db.data.users.findIndex(u => u.id === req.user.id);
+  if (userIndex === -1) return res.status(404).json({ error: 'User not found' });
+  // Optionally remove files owned by this user
+  db.data.files = db.data.files.filter(f => f.uploadedBy !== req.user.username);
+  db.data.users.splice(userIndex, 1);
+  await db.write();
+  res.json({ message: 'Account deleted successfully' });
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });

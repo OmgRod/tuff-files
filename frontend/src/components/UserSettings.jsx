@@ -86,6 +86,29 @@ export default function UserSettings({ auth, onUpdateAuth }) {
           <button type="submit" className="btn">Update Password</button>
         </form>
       </div>
-    </div>
+        {/* Delete Account */}
+        <div style={{ marginTop: '3rem', borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+          <h3><Lock size={18} style={{ marginRight: '0.5rem', verticalAlign: 'middle' }}/> Delete Account</h3>
+          <p style={{ color: 'var(--text-muted)', marginBottom: '1rem' }}>
+            This action will permanently delete your account and all associated files. This cannot be undone.
+          </p>
+          <button
+            className="btn btn-danger"
+            onClick={async () => {
+              if (!window.confirm('Are you sure you want to delete your account? This action cannot be undone.')) return;
+              try {
+                await axios.delete('/api/users/me', { headers: { Authorization: `Bearer ${auth.token}` } });
+                // Clear auth and redirect to login page
+                onUpdateAuth(null);
+                window.location.href = '/login';
+              } catch (err) {
+                setError(err.response?.data?.error || 'Failed to delete account');
+              }
+            }}
+          >
+            Delete My Account
+          </button>
+        </div>
+        </div>
   );
 }
