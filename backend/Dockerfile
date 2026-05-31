@@ -1,4 +1,4 @@
-FROM node:18-alpine
+FROM node:20-alpine
 
 WORKDIR /app
 
@@ -8,7 +8,7 @@ RUN npm install --production
 COPY . .
 
 # Ensure uploads directory exists
-RUN mkdir -p uploads
+RUN mkdir -p data/uploads
 
 EXPOSE 5000
 
