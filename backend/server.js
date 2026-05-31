@@ -36,7 +36,8 @@ const optionalAuth = (req, res, next) => {
   next();
 };
 
-const uploadDir = path.join(__dirname, 'data', 'uploads');
+const dataDir = path.join(__dirname, '..', 'data');
+const uploadDir = path.join(dataDir, 'uploads');
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
@@ -55,6 +56,13 @@ initDb().then(() => {
   console.log('Database initialized');
 }).catch(err => console.error(err));
 
+// Health/status endpoint
+app.get('/api/status', async (req, res) => {
+  await db.read();
+  const hasUsers = !!(db.data.users && db.data.users.length > 0);
+  res.json({ hasUsers });
+});
+
 // Auth Routes
 app.post('/api/register-first', async (req, res) => {
   await db.read();
@@ -63,7 +71,7 @@ app.post('/api/register-first', async (req, res) => {
     return res.status(400).json({ error: 'First user already registered' });
   }
   const hashedPassword = await bcrypt.hash(password, 10);
-  const newUser = { id: uuidv4(), username, password: hashedPassword, isAdmin: true };
+  const newUser = { id: uuidv4(), username, password: hashedPassword, isAdmin: true, storageCap: 500, storageCapEnabled: true };
   db.data.users.push(newUser);
   await db.write();
   res.status(201).json({ message: 'Admin user created successfully' });
@@ -83,6 +91,32 @@ app.post('/api/login', async (req, res) => {
 });
 
 // Admin Routes
+app.put('/api/admin/users/:id/cap', authenticate, isAdmin, async (req, res) => {
+  await db.read();
+  const { id } = req.params;
+  const { capMB, storageCapEnabled } = req.body;
+
+  const user = db.data.users.find(u => u.id === id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  if (capMB !== undefined) {
+    if (typeof capMB !== 'number' || capMB <= 0) {
+      return res.status(400).json({ error: 'Invalid capMB value' });
+    }
+    user.storageCap = capMB;
+  }
+
+  if (storageCapEnabled !== undefined) {
+    if (typeof storageCapEnabled !== 'boolean') {
+      return res.status(400).json({ error: 'Invalid storageCapEnabled value' });
+    }
+    user.storageCapEnabled = storageCapEnabled;
+  }
+
+  await db.write();
+  res.json({ message: 'Storage cap updated', user: { username: user.username, storageCap: user.storageCap, storageCapEnabled: user.storageCapEnabled } });
+});
+
 app.post('/api/admin/users', authenticate, isAdmin, async (req, res) => {
   await db.read();
   const { username, password, isAdminUser } = req.body;
@@ -90,7 +124,7 @@ app.post('/api/admin/users', authenticate, isAdmin, async (req, res) => {
     return res.status(400).json({ error: 'Username already exists' });
   }
   const hashedPassword = await bcrypt.hash(password, 10);
-  const newUser = { id: uuidv4(), username, password: hashedPassword, isAdmin: !!isAdminUser };
+  const newUser = { id: uuidv4(), username, password: hashedPassword, isAdmin: !!isAdminUser, storageCap: 500, storageCapEnabled: true };
   db.data.users.push(newUser);
   await db.write();
   res.status(201).json({ message: 'User created successfully', user: { username: newUser.username, isAdmin: newUser.isAdmin } });
@@ -141,8 +175,20 @@ app.put('/api/users/password', authenticate, async (req, res) => {
 // File Routes
 app.post('/api/files', authenticate, upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-  await db.read();
-  const visibility = req.body.visibility || 'private'; // public, private, unlisted
+  // Enforce per‑user storage cap (optional)
+  const userRecord = db.data.users.find(u => u.username === req.user.username);
+  const capEnabled = userRecord?.storageCapEnabled ?? true;
+  const capBytes = capEnabled ? (userRecord?.storageCap ?? 500) * 1024 * 1024 : Infinity;
+  const usedBytes = db.data.files
+    .filter(f => f.uploadedBy === req.user.username)
+    .reduce((sum, f) => sum + f.size, 0);
+  if (usedBytes + req.file.size > capBytes) {
+    // Delete the newly saved file to avoid orphaned data
+    fs.unlinkSync(req.file.path);
+    return res.status(400).json({ error: `Storage cap exceeded. Max ${userRecord.storageCap} MB allowed.` });
+  }
+
+  const { visibility } = req.body;
   const newFile = {
     id: uuidv4(),
     filename: req.file.originalname,
@@ -254,9 +300,12 @@ app.put('/api/files/:id/visibility', authenticate, async (req, res) => {
   res.json(file);
 });
 
-app.get('/api/status', async (req, res) => {
+app.get('/api/users/me', authenticate, async (req, res) => {
   await db.read();
-  res.json({ hasUsers: db.data.users && db.data.users.length > 0 });
+  const user = db.data.users.find(u => u.id === req.user.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  const capMB = user.storageCap ?? 500;
+  res.json({ username: user.username, storageCap: capMB });
 });
 
 app.listen(PORT, () => {

@@ -71,6 +71,7 @@ export default function Login({ onLogin }) {
           <button type="submit" className="btn" style={{ width: '100%', marginTop: '1rem' }}>
             {isFirstSetup ? 'Create Admin' : 'Sign In'}
           </button>
+          <p className="text-xs text-muted mt-2">By using this service you comply with our Terms of Service and Privacy Policy.</p>
         </form>
       </div>
     </div>
